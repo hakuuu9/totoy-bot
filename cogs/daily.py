@@ -8,19 +8,22 @@ from config import MONGO_URL
 class Daily(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.db = MongoClient(MONGO_URL).hxhbot.daily  # Collection for daily claims
+        self.db = MongoClient(MONGO_URL).hxhbot.users  # Make sure this points to your 'users' collection
 
     @commands.command(name='daily')
     async def daily_text(self, ctx):
         await self.handle_daily(ctx.author, ctx)
 
-    @app_commands.command(name='daily', description='Claim your daily reward (24h cooldown)')
+    @app_commands.command(name='daily', description='Claim your daily reward (₱500 every 24h)')
     async def daily_slash(self, interaction: discord.Interaction):
         await self.handle_daily(interaction.user, interaction)
 
     async def handle_daily(self, user, ctx_or_interaction):
         now = datetime.utcnow()
         user_data = self.db.find_one({'_id': str(user.id)})
+
+        amount = 500
+        emoji = "<:1916pepecoin:1376564847088504872>"
 
         if user_data and 'last_claim' in user_data:
             last_claim = user_data['last_claim']
@@ -32,12 +35,11 @@ class Daily(commands.Cog):
                 message = f"❌ You've already claimed your daily. Try again in {hours}h {minutes}m."
                 return await self.send_response(ctx_or_interaction, message)
 
-        amount = 500
-        emoji = "<:1916pepecoin:1376564847088504872>"
+        new_balance = (user_data['balance'] if user_data else 0) + amount
 
         self.db.update_one(
             {'_id': str(user.id)},
-            {'$set': {'last_claim': now, 'amount': amount}},
+            {'$set': {'last_claim': now, 'balance': new_balance}},
             upsert=True
         )
 
