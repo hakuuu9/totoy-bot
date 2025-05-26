@@ -43,7 +43,7 @@ class Daily(commands.Cog):
             upsert=True
         )
 
-        message = f"You received **__₱ {amount} {emoji}__**!\n−# **You Beggar Daily Reward Claimed!**"
+        message = f"You received **__₱ {amount} {emoji}__**\n You Beggar Daily Reward Claimed!"
         await self.send_response(ctx_or_interaction, message)
 
     async def send_response(self, ctx_or_interaction, message):
