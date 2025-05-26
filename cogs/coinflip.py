@@ -9,9 +9,9 @@ from config import MONGO_URL
 class CoinFlip(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.db = MongoClient(MONGO_URL).hxhbot.daily  # Your user collection
+        self.db = MongoClient(MONGO_URL).hxhbot.daily
 
-        # Your emojis from portal
+        # Emoji IDs
         self.flip_emoji = "<a:flipping:1376592368836415598>"
         self.head_emoji = "<:head:1376592499426201650>"
         self.tail_emoji = "<:tail:1376592674186068200>"
@@ -25,38 +25,37 @@ class CoinFlip(commands.Cog):
         if side not in ["head", "tail"]:
             return await interaction.response.send_message("❌ Please choose 'head' or 'tail'.")
 
-        # Fetch user data
-        user_data = self.db.find_one({"_id": user_id})
-
-        if not user_data or user_data.get("balance", 0) < amount:
-            return await interaction.response.send_message("❌ You don't have enough coins to bet that amount.")
-
         if amount <= 0:
-            return await interaction.response.send_message("❌ Bet amount must be greater than zero.")
+            return await interaction.response.send_message("❌ Bet amount must be more than zero.")
 
-        # Deduct bet upfront
-        self.db.update_one({"_id": user_id}, {"$inc": {"balance": -amount}})
+        user_data = self.db.find_one({"_id": user_id})
+        balance = user_data.get("balance", 0) if user_data else 0
 
-        # Send initial flip message
-        await interaction.response.send_message(f"You chose **{side}** {self.flip_emoji}\nFlipping the coin...")
+        if balance < amount:
+            return await interaction.response.send_message(f"❌ You only have ₱{balance}.")
 
-        # Wait 2 seconds to simulate flip
+        # Subtract the bet amount
+        self.db.update_one({"_id": user_id}, {"$inc": {"balance": -amount}}, upsert=True)
+
+        # Initial flipping message
+        await interaction.response.send_message(
+            f"You chose **{side}** {self.flip_emoji}\nFlipping the coin..."
+        )
+
         await asyncio.sleep(2)
 
-        # Determine result
         result = random.choice(["head", "tail"])
         result_emoji = self.head_emoji if result == "head" else self.tail_emoji
 
         if side == result:
             reward = amount * 2
-            self.db.update_one({"_id": user_id}, {"$inc": {"balance": reward}})  # Add winnings
-
+            self.db.update_one({"_id": user_id}, {"$inc": {"balance": reward}})
             await interaction.followup.send(
-                f"The coin landed on **{result}** {result_emoji}\n You won ₱{reward} coins!"
+                f"The coin landed on **{result}** {result_emoji}\n🎉 You won ₱{reward}!"
             )
         else:
             await interaction.followup.send(
-                f"The coin landed on **{result}** {result_emoji}\n You lost ₱{amount} coins."
+                f"The coin landed on **{result}** {result_emoji}\n😞 You lost ₱{amount}."
             )
 
 async def setup(bot):
