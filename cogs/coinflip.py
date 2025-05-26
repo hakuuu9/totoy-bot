@@ -11,7 +11,7 @@ class CoinFlip(commands.Cog):
         self.bot = bot
         self.db = MongoClient(MONGO_URL).hxhbot.daily
 
-        # Emoji IDs
+        # Emojis
         self.flip_emoji = "<a:flipping:1376592368836415598>"
         self.head_emoji = "<:head:1376592499426201650>"
         self.tail_emoji = "<:tail:1376592674186068200>"
@@ -28,35 +28,38 @@ class CoinFlip(commands.Cog):
         if amount <= 0:
             return await interaction.response.send_message("❌ Bet amount must be more than zero.")
 
+        # Get user data
         user_data = self.db.find_one({"_id": user_id})
         balance = user_data.get("balance", 0) if user_data else 0
 
         if balance < amount:
             return await interaction.response.send_message(f"❌ You only have ₱{balance}.")
 
-        # Subtract the bet amount
-        self.db.update_one({"_id": user_id}, {"$inc": {"balance": -amount}}, upsert=True)
-
-        # Initial flipping message
+        # Send flip message
         await interaction.response.send_message(
             f"You chose **{side}** {self.flip_emoji}\nFlipping the coin..."
         )
 
         await asyncio.sleep(2)
 
+        # Flip the coin
         result = random.choice(["head", "tail"])
         result_emoji = self.head_emoji if result == "head" else self.tail_emoji
 
         if side == result:
-            reward = amount * 2
-            self.db.update_one({"_id": user_id}, {"$inc": {"balance": reward}})
-            await interaction.followup.send(
-                f"The coin landed on **{result}** {result_emoji}\n🎉 You won ₱{reward}!"
-            )
+            reward = amount
+            new_balance = balance + reward
+            message = f"The coin landed on **{result}** {result_emoji}\n🎉 You won ₱{reward}!\nNew Balance: ₱{new_balance}"
         else:
-            await interaction.followup.send(
-                f"The coin landed on **{result}** {result_emoji}\n😞 You lost ₱{amount}."
-            )
+            reward = -amount
+            new_balance = balance + reward
+            message = f"The coin landed on **{result}** {result_emoji}\n😞 You lost ₱{amount}.\nNew Balance: ₱{new_balance}"
+
+        # Update balance
+        self.db.update_one({"_id": user_id}, {"$set": {"balance": new_balance}}, upsert=True)
+
+        # Send result
+        await interaction.followup.send(message)
 
 async def setup(bot):
     await bot.add_cog(CoinFlip(bot))
