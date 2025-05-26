@@ -39,9 +39,8 @@ class Work(commands.Cog):
 
         emoji = "<a:9470coin:1376564873332391966>"
         message = (
-            f"Totoy, nagbanat ng buto pero ang sweldo ₱{salary} {emoji} para na rin sa mga pang-hugas ng luha mo.\n"
-            f"# **Ayos! Credit na yan, kasing bilis ng ex mo na nawawala sa buhay!**\n"
-            f"Bagong balance mo: ₱{new_balance} {emoji} — laban lang, kapit lang, pre!"
+            f"Totoy, nagbanat ng buto pero ang sweldo ₱{salary} {emoji} para na rin sa mga pang hugas ng luha mo.\n"
+            f"Bagong balance mo: ₱{new_balance} {emoji} laban lang, kapit lang, pre!"
 
         )
 
