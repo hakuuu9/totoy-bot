@@ -2,8 +2,8 @@ import discord
 from discord.ext import commands
 from keep_alive import keep_alive
 from config import BOT_TOKEN
-
 import os
+import asyncio
 
 intents = discord.Intents.default()
 intents.message_content = True  # Needed for chat commands
@@ -19,12 +19,17 @@ async def on_ready():
     except Exception as e:
         print(f'Error syncing slash commands: {e}')
 
-# Load all cogs from /cogs
-for filename in os.listdir("./cogs"):
-    if filename.endswith(".py"):
-        bot.load_extension(f"cogs.{filename[:-3]}")
+async def main():
+    # Load all cogs from /cogs
+    for filename in os.listdir("./cogs"):
+        if filename.endswith(".py"):
+            await bot.load_extension(f"cogs.{filename[:-3]}")
+    
+    # Start keep-alive server (if needed)
+    keep_alive()
+    
+    # Run the bot
+    await bot.start(BOT_TOKEN)
 
-# Keep-alive server for Render
-keep_alive()
-
-bot.run(BOT_TOKEN)
+# Run the async main() function
+asyncio.run(main())
