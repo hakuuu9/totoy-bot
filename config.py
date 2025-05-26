@@ -1,2 +1,5 @@
-MONGO_URL = "your_mongodb_url"
-BOT_TOKEN = "your_bot_token"
+import os
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+MONGO_URL = os.getenv("MONGO_URL")
+Flask
