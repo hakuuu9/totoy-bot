@@ -32,14 +32,16 @@ class Daily(commands.Cog):
                 message = f"❌ You've already claimed your daily. Try again in {hours}h {minutes}m."
                 return await self.send_response(ctx_or_interaction, message)
 
-        # Give reward and update timestamp
+        amount = 500
+        emoji = "<:1916pepecoin:1376564847088504872>"
+
         self.db.update_one(
             {'_id': str(user.id)},
-            {'$set': {'last_claim': now}},
+            {'$set': {'last_claim': now, 'amount': amount}},
             upsert=True
         )
 
-        message = "✅ You claimed your daily reward! See you tomorrow. 🎉"
+        message = f"You received ₱{amount} {emoji}\n*−# You Beggar Daily Reward Claimed!*"
         await self.send_response(ctx_or_interaction, message)
 
     async def send_response(self, ctx_or_interaction, message):
