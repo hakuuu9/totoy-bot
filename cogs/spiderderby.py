@@ -10,6 +10,7 @@ from config import MONGO_URL # Assuming config.py is in the same directory
 SPIDER_RIGHT_EMOJI = "<a:spider1:1376850735622262845>"
 SPIDER_LEFT_EMOJI = "<a:spider2:1376850849069797508>"
 FIGHT_EMOJI = "⚔️" # General fight emoji
+CLASH_EMOJI = "💥" # For impact effect
 
 class SpiderDerby(commands.Cog):
     def __init__(self, bot):
@@ -51,18 +52,34 @@ class SpiderDerby(commands.Cog):
         chosen_spider_emoji = SPIDER_RIGHT_EMOJI if spider_choice == "right" else SPIDER_LEFT_EMOJI
         chosen_spider_name = "Going Right Spider" if spider_choice == "right" else "Going Left Spider"
 
-        # --- Spider Derby Simulation ---
-        # Initial message to start the derby
+        # --- Spider Derby Introduction ---
         await interaction.followup.send(
             f"{interaction.user.mention} placed a bet of ₱{bet_amount:,} on the **{chosen_spider_name}** {chosen_spider_emoji}!\n"
-            f"The spiders are ready! {SPIDER_RIGHT_EMOJI} {FIGHT_EMOJI} {SPIDER_LEFT_EMOJI}\n"
-            f"And they're off... (Result in 3 seconds)"
+            f"The spiders are ready! {SPIDER_RIGHT_EMOJI} {FIGHT_EMOJI} {SPIDER_LEFT_EMOJI}"
         )
 
-        # Simulate fight delay
-        await asyncio.sleep(3) # A 3-second delay for suspense
+        # --- NEW: Battle Animation ---
+        battle_message = await interaction.channel.send("The spiders are battling fiercely... 🕷️💨🕸️")
+        
+        animation_frames = [
+            f"{SPIDER_RIGHT_EMOJI}  {FIGHT_EMOJI}  {SPIDER_LEFT_EMOJI}",
+            f"  {SPIDER_RIGHT_EMOJI}{FIGHT_EMOJI}{SPIDER_LEFT_EMOJI}  ",
+            f"{SPIDER_RIGHT_EMOJI}{CLASH_EMOJI}{SPIDER_LEFT_EMOJI}",
+            f" {SPIDER_LEFT_EMOJI} {FIGHT_EMOJI} {SPIDER_RIGHT_EMOJI}",
+            f"{SPIDER_LEFT_EMOJI}   {FIGHT_EMOJI}   {SPIDER_RIGHT_EMOJI} {CLASH_EMOJI}",
+            f"{SPIDER_RIGHT_EMOJI} {FIGHT_EMOJI} {SPIDER_LEFT_EMOJI} 💥",
+            f"🕷️⚔️🕸️", # A more condensed clash
+        ]
 
-        # Determine outcome (50/50 chance)
+        for _ in range(7): # Loop through 7 animation steps for about 3.5 seconds of animation
+            frame = random.choice(animation_frames) # Pick a random frame each time
+            await battle_message.edit(content=f"The spiders are battling fiercely... {frame}")
+            await asyncio.sleep(0.5) # Control the speed of each frame
+
+        await battle_message.delete() # Delete the animation message before revealing the result
+        # --- END NEW BATTLE ANIMATION ---
+
+        # --- Determine Outcome (existing logic) ---
         winning_spider_value = random.choice(["right", "left"])
         
         # Map winning value to actual emoji and name
@@ -71,8 +88,7 @@ class SpiderDerby(commands.Cog):
 
         if winning_spider_value == spider_choice:
             # Player wins
-            amount_change = bet_amount # Player wins their bet back, plus the amount they bet (total 2x original bet)
-            net_change = bet_amount
+            net_change = bet_amount # Player wins their bet back, plus an equal amount (total 2x original bet)
             new_balance = current_balance + net_change
             
             # Update database
