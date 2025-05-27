@@ -21,7 +21,7 @@ class CoinFlip(commands.Cog):
             return await interaction.response.send_message("❌ Choose either `head` or `tail`.", ephemeral=True)
 
         user_id = str(interaction.user.id)
-        
+
         # Defer the response immediately as the command involves database interaction and a delay
         await interaction.response.defer()
 
@@ -44,13 +44,17 @@ class CoinFlip(commands.Cog):
         result = random.choice(["head", "tail"])
         result_emoji = "<:head:1376592499426201650>" if result == "head" else "<:tail:1376592674186068200>"
 
+        # Define your custom win/loss emojis
+        win_emoji = "<:win_cf:1376735656042299483>"
+        lose_emoji = "<:lose_cf:1376735674132332574>"
+
         if choice == result:
             # Update balance: increment by amount, upsert=True to create document if it doesn't exist
             self.db.update_one({"_id": user_id}, {"$inc": {"balance": amount}}, upsert=True)
             new_balance = balance + amount
             await interaction.followup.send(
                 f"The coin landed on **{result}** {result_emoji}\n"
-                f"✅ You won ₱{amount}!\n"
+                f"{win_emoji} You won ₱{amount}!\n" # Using custom win emoji
                 f"Your new balance is ₱{new_balance}."
             )
         else:
@@ -59,9 +63,14 @@ class CoinFlip(commands.Cog):
             new_balance = balance - amount
             await interaction.followup.send(
                 f"The coin landed on **{result}** {result_emoji}\n"
-                f"❌ You lost ₱{amount}.\n"
+                f"{lose_emoji} You lost ₱{amount}.\n" # Using custom lose emoji
                 f"Your new balance is ₱{new_balance}."
             )
+
+    def cog_unload(self):
+        # Good practice: Close the MongoDB client when the cog is unloaded
+        self.client.close()
+        print("CoinFlip MongoDB client closed.")
 
 async def setup(bot):
     await bot.add_cog(CoinFlip(bot))
