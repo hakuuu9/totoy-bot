@@ -4,7 +4,7 @@ from discord import app_commands
 import random
 import asyncio
 from pymongo import MongoClient
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta # Ensure datetime and timedelta are imported
 from config import MONGO_URL # Assuming config.py is in the same directory
 
 # Configuration for rob amounts and cooldown
@@ -14,6 +14,9 @@ MIN_ROB_AMOUNT = 1
 
 # Custom rob emoji
 ROB_EMOJI = "<a:rob:1376799725986119790>"
+
+# IMPORTANT: Add the Anti-Rob emoji here as well, consistent with shop.py and use.py
+ANTI_ROB_EMOJI = "<:antirob:1376801124656349214>"
 
 # Scaling tiers for robbed amount based on target's balance
 ROB_TIERS = {
@@ -34,7 +37,7 @@ class Rob(commands.Cog):
     async def rob(self, interaction: discord.Interaction, target_member: discord.Member):
         robber_id = str(interaction.user.id)
         target_id = str(target_member.id)
-        current_time = datetime.utcnow()
+        current_time = datetime.utcnow() # Use UTC time for consistency
 
         # Defer the response as we'll be interacting with the database and potentially waiting.
         await interaction.response.defer(ephemeral=False)
@@ -54,21 +57,21 @@ class Rob(commands.Cog):
         # --- Check Cooldown for Robber ---
         if rob_cooldown_until and current_time < rob_cooldown_until:
             remaining_time = rob_cooldown_until - current_time
+            # Format cooldown message (days, hours, minutes)
             hours, remainder = divmod(remaining_time.seconds, 3600)
             minutes, seconds = divmod(remainder, 60)
             
-            # Format cooldown message
             cooldown_str = ""
             if remaining_time.days > 0:
                 cooldown_str += f"{remaining_time.days} day{'s' if remaining_time.days > 1 else ''}"
             if hours > 0:
-                if cooldown_str: cooldown_str += ", "
+                if cooldown_str: cooldown_str += ", " # Add comma if there are preceding units
                 cooldown_str += f"{hours} hour{'s' if hours > 1 else ''}"
             if minutes > 0:
                 if cooldown_str: cooldown_str += ", "
                 cooldown_str += f"{minutes} minute{'s' if minutes > 1 else ''}"
             
-            cooldown_str = cooldown_str if cooldown_str else "a few seconds"
+            cooldown_str = cooldown_str if cooldown_str else "a few seconds" # Fallback for very short times
 
             return await interaction.followup.send(
                 f"⏳ You are on cooldown! You can rob again in **{cooldown_str}**.",
@@ -78,6 +81,32 @@ class Rob(commands.Cog):
         # --- Fetch Target's Data ---
         target_data = self.db.find_one({"_id": target_id})
         target_balance = int(target_data.get("balance", 0)) if target_data else 0
+
+        # --- NEW ADDITION: Check if target has active Anti-Rob protection ---
+        target_anti_rob_expires_at = target_data.get("anti_rob_expires_at") if target_data else None
+        if target_anti_rob_expires_at and current_time < target_anti_rob_expires_at:
+            remaining_protection_time = target_anti_rob_expires_at - current_time
+            hours, remainder = divmod(remaining_protection_time.seconds, 3600)
+            minutes, seconds = divmod(remainder, 60)
+
+            protection_str = ""
+            if remaining_protection_time.days > 0:
+                protection_str += f"{remaining_protection_time.days} day{'s' if remaining_protection_time.days > 1 else ''}"
+            if hours > 0:
+                if protection_str: protection_str += ", "
+                protection_str += f"{hours} hour{'s' if hours > 1 else ''}"
+            if minutes > 0:
+                if protection_str: protection_str += ", "
+                protection_str += f"{minutes} minute{'s' if minutes > 1 else ''}"
+            
+            protection_str = protection_str if protection_str else "a few seconds"
+
+            return await interaction.followup.send(
+                f"🛡️ {target_member.mention} is currently protected by an {ANTI_ROB_EMOJI} **Anti-Rob Shield** "
+                f"for another **{protection_str}**! You cannot rob them.",
+                ephemeral=True
+            )
+        # --- END NEW ADDITION ---
 
         # --- Validate Target's Balance ---
         if target_balance <= 0: # Cannot rob if target has no money or negative balance
@@ -127,7 +156,7 @@ class Rob(commands.Cog):
         new_target_balance = target_balance - rob_amount
 
         await interaction.followup.send(
-            f"{ROB_EMOJI} You successfully robbed ₱{rob_amount:,} from {target_member.mention}!\n" # Custom emoji added here
+            f"{ROB_EMOJI} You successfully robbed ₱{rob_amount:,} from {target_member.mention}!\n"
             f"Your new balance: ₱{new_robber_balance:,}.\n"
             f"{target_member.display_name}'s new balance: ₱{new_target_balance:,}.\n"
             f"You are now on cooldown for {ROB_COOLDOWN_HOURS} hours."
