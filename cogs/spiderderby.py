@@ -25,8 +25,8 @@ class SpiderDerby(commands.Cog):
     )
     @app_commands.choices(
         spider_choice=[
-            app_commands.Choice(name="Going Right Spider", value="right"),
-            app_commands.Choice(name="Going Left Spider", value="left"),
+            app_commands.Choice(name="Right Spider", value="right"),
+            app_commands.Choice(name="Left Spider", value="left"),
         ]
     )
     async def spiderderby(self, interaction: discord.Interaction, bet_amount: int, spider_choice: str):
@@ -84,7 +84,7 @@ class SpiderDerby(commands.Cog):
         
         # Map winning value to actual emoji and name
         winning_spider_emoji = SPIDER_RIGHT_EMOJI if winning_spider_value == "right" else SPIDER_LEFT_EMOJI
-        winning_spider_name = "Going Right Spider" if winning_spider_value == "right" else "Going Left Spider"
+        winning_spider_name = "Right Spider" if winning_spider_value == "right" else "Left Spider"
 
         if winning_spider_value == spider_choice:
             # Player wins
