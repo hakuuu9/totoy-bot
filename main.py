@@ -8,7 +8,7 @@ import asyncio
 intents = discord.Intents.default()
 intents.message_content = True  # Needed for chat commands
 
-bot = commands.Bot(command_prefix="hxh ", intents=intents)
+bot = commands.Bot(command_prefix="sin ", intents=intents)
 
 @bot.event
 async def on_ready():
