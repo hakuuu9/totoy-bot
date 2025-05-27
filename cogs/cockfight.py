@@ -18,7 +18,7 @@ class Cockfight(commands.Cog):
         self.client = MongoClient(MONGO_URL)
         self.db = self.client.hxhbot.users # Connect to the same 'users' collection where balance and chickens are stored
 
-    @app_commands.command(name="cf", description="Bet an amount of ₱ on a cockfight!") # Updated description
+    @app_commands.command(name="cockfight", description="Bet an amount of ₱ on a cockfight!") # Updated description
     @app_commands.describe(bet_amount="The amount of ₱ to bet.") # Updated argument description
     async def cockfight(self, interaction: discord.Interaction, bet_amount: int):
         user_id = str(interaction.user.id)
