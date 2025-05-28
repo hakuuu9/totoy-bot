@@ -3,31 +3,26 @@ from discord.ext import commands, tasks
 from discord import app_commands
 from pymongo import MongoClient
 from datetime import datetime, timedelta
-import re # For parsing duration string
+import re 
 import random
-from config import MONGO_URL # Assuming config.py is in the same directory
+from config import MONGO_URL 
 
-# Default emoji for entering the giveaway
 GIVEAWAY_EMOJI = "🎉"
 
-# --- New: Confirmation View for Giveaways ---
 class ConfirmGiveawayView(discord.ui.View):
     def __init__(self, original_interaction: discord.Interaction):
-        super().__init__(timeout=60) # User has 60 seconds to confirm
+        super().__init__(timeout=60)
         self.confirmed = False
-        self.original_interaction = original_interaction # Store original interaction for followups if needed
+        self.original_interaction = original_interaction
 
     async def on_timeout(self):
-        # This is called if no button is pressed within the timeout
-        if not self.confirmed: # Only if they didn't click start
+        if not self.confirmed:
             try:
-                # Attempt to edit the original ephemeral message to indicate timeout
                 await self.original_interaction.edit_original_response(
                     content="Giveaway setup timed out. Please run the command again.",
                     view=None, embed=None
                 )
             except discord.NotFound:
-                # Original message might have been deleted already, ignore.
                 pass
             except Exception as e:
                 print(f"Error during giveaway confirmation timeout handling: {e}")
@@ -39,9 +34,8 @@ class ConfirmGiveawayView(discord.ui.View):
             return
 
         self.confirmed = True
-        # Edit the ephemeral message to acknowledge confirmation
         await interaction.response.edit_message(content="Giveaway confirmed! Launching...", view=None, embed=None)
-        self.stop() # Stop waiting for interactions
+        self.stop()
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.red)
     async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -49,12 +43,9 @@ class ConfirmGiveawayView(discord.ui.View):
             await interaction.response.send_message("❌ Only the command issuer can cancel this giveaway.", ephemeral=True)
             return
 
-        self.confirmed = False # Set to False to indicate cancellation
-        # Edit the ephemeral message to acknowledge cancellation
+        self.confirmed = False
         await interaction.response.edit_message(content="Giveaway cancelled.", view=None, embed=None)
-        self.stop() # Stop waiting for interactions
-
-# --- End Confirmation View ---
+        self.stop()
 
 class Giveaway(commands.Cog):
     def __init__(self, bot):
@@ -70,7 +61,6 @@ class Giveaway(commands.Cog):
         self.client.close()
         print("Giveaway MongoDB client closed.")
 
-    # --- Helper function to parse duration string (e.g., "1h30m", "2d") ---
     def parse_duration(self, duration_str: str) -> timedelta:
         total_seconds = 0
         matches = re.findall(r'(\d+)([dhms])', duration_str.lower())
@@ -105,6 +95,7 @@ class Giveaway(commands.Cog):
         image_url="An image URL to display in the giveaway embed (optional).",
         embed_color_hex="A hex code for the embed color (e.g., #FF0000, optional)."
     )
+    @app_commands.checks.has_permissions(manage_guild=True) # <--- NEW: Permission Check!
     async def giveaway(
         self, 
         interaction: discord.Interaction, 
@@ -113,13 +104,13 @@ class Giveaway(commands.Cog):
         winners: int, 
         required_role: discord.Role = None, 
         extra_entry_role: discord.Role = None,
-        extra_entries_for_role: app_commands.Range[int, 2, 10] = None, # Range from 2 to 10
+        extra_entries_for_role: app_commands.Range[int, 2, 10] = None, 
         image_url: str = None, 
         embed_color_hex: str = None
     ):
-        await interaction.response.defer(ephemeral=True) # Defer the initial response
+        await interaction.response.defer(ephemeral=True)
 
-        # --- Input Validation (All same as before) ---
+        # --- Input Validation (No changes here) ---
         if winners <= 0:
             return await interaction.followup.send("❌ The number of winners must be at least 1.", ephemeral=True)
 
@@ -147,10 +138,9 @@ class Giveaway(commands.Cog):
         elif extra_entries_for_role is not None:
              return await interaction.followup.send("❌ You must specify an `extra_entry_role` if you set `extra_entries_for_role`.", ephemeral=True)
 
-
         end_time = datetime.utcnow() + giveaway_duration
         
-        # --- Create Giveaway Embed (This is the preview embed) ---
+        # --- Create Giveaway Embed (No changes here) ---
         giveaway_embed = discord.Embed(
             title="🎉 GIVEAWAY! 🎉",
             description=f"**Prize:** {name}\n\n"
@@ -176,33 +166,27 @@ class Giveaway(commands.Cog):
 
         giveaway_embed.set_footer(text=f"Giveaway ends at")
 
-        # --- NEW: Send Confirmation Message with Buttons ---
-        view = ConfirmGiveawayView(interaction) # Pass the original interaction to the view
+        # --- Send Confirmation Message with Buttons (No changes here) ---
+        view = ConfirmGiveawayView(interaction)
         confirmation_message_content = "Here's a **preview** of your giveaway. Please review and click 'Start Giveaway' to launch, or 'Cancel' to abort:"
         try:
-            # Send an ephemeral message with the preview and buttons
             await interaction.followup.send(
                 content=confirmation_message_content, 
                 embed=giveaway_embed, 
                 view=view, 
-                ephemeral=True # Crucially, this message is ephemeral
+                ephemeral=True
             )
-            # Wait for the user to click a button (or for the timeout)
             await view.wait() 
         except Exception as e:
             print(f"Error during giveaway confirmation message or waiting for view: {e}")
             return await interaction.followup.send(f"❌ An error occurred during confirmation: {e}", ephemeral=True)
 
-
-        # --- Process Confirmation Result ---
+        # --- Process Confirmation Result (No changes here) ---
         if view.confirmed:
-            # User clicked 'Start Giveaway'
-            # --- Send Actual Giveaway Message to the Channel ---
             try:
                 giveaway_message = await interaction.channel.send(embed=giveaway_embed)
                 await giveaway_message.add_reaction(GIVEAWAY_EMOJI)
             except discord.Forbidden:
-                # If bot lacks permission to send the actual message, inform user
                 await interaction.followup.send( 
                     "❌ I don't have permissions to send messages or add reactions in this channel. "
                     "Giveaway cancelled. Please check my permissions.", ephemeral=True
@@ -213,9 +197,8 @@ class Giveaway(commands.Cog):
                 await interaction.followup.send(f"❌ An error occurred while launching the giveaway: {e}. Giveaway cancelled.", ephemeral=True)
                 return
 
-            # --- Store Giveaway Data in Database ---
             giveaway_data = {
-                "_id": str(giveaway_message.id), # Message ID as unique identifier
+                "_id": str(giveaway_message.id),
                 "channel_id": str(interaction.channel.id),
                 "guild_id": str(interaction.guild.id),
                 "end_time": end_time,
@@ -229,17 +212,30 @@ class Giveaway(commands.Cog):
             }
             self.giveaway_db.insert_one(giveaway_data)
 
-            # Inform user that giveaway is launched (this will be a new ephemeral message or edit the previous one)
-            # The view.stop() handles the original ephemeral message state, so a new followup is fine.
             await interaction.followup.send(f"✅ Giveaway for **{name}** has been launched in {interaction.channel.mention}!", ephemeral=True)
 
         else:
-            # User clicked 'Cancel' or timeout occurred.
-            # The view's `cancel_button` or `on_timeout` methods already handled updating the ephemeral message.
             pass
 
+    # --- NEW: Error Handler for the giveaway command ---
+    @giveaway.error
+    async def giveaway_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        if isinstance(error, app_commands.MissingPermissions):
+            # Format the missing permissions nicely (e.g., "Manage Guild")
+            permissions_needed = [p.replace('_', ' ').title() for p in error.missing_permissions]
+            await interaction.response.send_message(
+                f"❌ You don't have the required permissions to use this command. "
+                f"You need the following permission(s): **{', '.join(permissions_needed)}**.",
+                ephemeral=True
+            )
+        else:
+            # For any other unexpected errors that might occur before validation
+            await interaction.response.send_message(
+                f"An unexpected error occurred while processing the command: {error}",
+                ephemeral=True
+            )
 
-    # --- Background task to check for ended giveaways (No changes needed here for functionality) ---
+    # --- Background task to check for ended giveaways (No changes here) ---
     @tasks.loop(minutes=1) 
     async def check_giveaways(self):
         await self.bot.wait_until_ready()
@@ -285,7 +281,7 @@ class Giveaway(commands.Cog):
                 final_participant_list = []
                 required_role_id = giveaway_data.get("required_role_id")
                 extra_entry_role_id = giveaway_data.get("extra_entry_role_id")
-                extra_entries_multiplier = giveaway_data.get("extra_entries_for_role", 1) # Default to 1 if not set
+                extra_entries_multiplier = giveaway_data.get("extra_entries_for_role", 1)
 
                 required_role_obj = guild.get_role(int(required_role_id)) if required_role_id else None
                 extra_entry_role_obj = guild.get_role(int(extra_entry_role_id)) if extra_entry_role_id else None
