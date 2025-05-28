@@ -37,6 +37,7 @@ class HangmanGame:
         self.players = players # List of players (solo/duo) or None (ffa)
         self.current_turn_index = 0 # To track whose turn it is in solo/duo
         self.message = None # To store the main game message, allowing edits
+        self.is_stopped = False # Flag to indicate if the game has been stopped externally
 
     def format_display(self):
         """Returns the current state of the word, e.g., "_ y t _ _ n" """
@@ -60,7 +61,7 @@ class HangmanGame:
 
     async def game_loop(self):
         """Main loop for the Hangman game, handling turns and guesses."""
-        while self.attempts_left > 0 and "_" in self.display:
+        while self.attempts_left > 0 and "_" in self.display and not self.is_stopped:
             current_player_obj = None
             if self.players: # Solo or Duo mode
                 current_player_obj = self.players[self.current_turn_index % len(self.players)]
@@ -77,13 +78,19 @@ class HangmanGame:
                     check=lambda m: (
                         m.channel == self.channel and # Must be in the game channel
                         m.content.strip().lower() != "/hangman" and # Ignore new game commands
+                        m.content.strip().lower() != "/hangman stop" and # Ignore stop commands
                         (self.players is None or m.author == current_player_obj) # If turn-based, only current player
                     )
                 )
             except asyncio.TimeoutError:
-                await self.message.edit(content=f"⏰ Time's up! Game over. The word was: `{self.word}`", view=None)
+                if not self.is_stopped: # Only send timeout if not stopped by command
+                    await self.message.edit(content=f"⏰ Time's up! Game over. The word was: `{self.word}`", view=None)
                 break # Exit game loop
             
+            # If the game was stopped while waiting for input, break out
+            if self.is_stopped:
+                break
+
             # Delete the user's guess message to keep the channel clean
             try:
                 await guess_msg.delete()
@@ -124,10 +131,13 @@ class HangmanGame:
                 self.current_turn_index += 1
             
             # Update the main game message after each guess
-            await self.message.edit(content=self.get_game_state_message())
+            if not self.is_stopped: # Only update if not stopped externally
+                await self.message.edit(content=self.get_game_state_message())
 
-        # Game ended (win or lose)
-        if "_" not in self.display:
+        # Game ended (win, lose, or stopped)
+        if self.is_stopped:
+            final_message_content = f"🛑 The Hangman game was stopped by command. The word was: `{self.word}`"
+        elif "_" not in self.display:
             final_message_content = f"🎉 **GAME WON!** The word was: `{self.word}`"
         else:
             final_message_content = f"💀 **GAME OVER!** You ran out of tries. The word was: `{self.word}`"
@@ -149,12 +159,20 @@ class HangmanGame:
             content += f"\n\n**Players:** {', '.join([p.mention for p in self.players])}"
         return content
 
+    async def stop_game(self, stopper: discord.Member):
+        """Forcefully stops the game."""
+        self.is_stopped = True
+        # Wake up the wait_for loop if it's currently waiting
+        if self.bot and hasattr(self.bot, '_connection') and self.message:
+            # Send a dummy message to trigger the check and let the loop break
+            # This is a bit of a hack, but ensures the wait_for finishes quickly
+            await self.channel.send(f"Game is stopping...", delete_after=0.1)
+
 
 class Hangman(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         # Dictionary to store active games by channel ID
-        # This prevents multiple games in the same channel and helps manage game instances.
         self.active_games = {} 
 
     # Helper function to fetch a random word from an online API
@@ -187,7 +205,7 @@ class Hangman(commands.Cog):
             app_commands.Choice(name="Free For All (Anyone can guess)", value="ffa"),
         ]
     )
-    async def hangman(self, interaction: discord.Interaction, mode: str, opponent: discord.Member = None):
+    async def start_hangman(self, interaction: discord.Interaction, mode: str, opponent: discord.Member = None): # Renamed command for clarity with subcommand
         # Check if a game is already active in this channel
         if interaction.channel_id in self.active_games:
             await interaction.response.send_message("❌ A Hangman game is already active in this channel! Please wait for it to finish.", ephemeral=True)
@@ -221,7 +239,7 @@ class Hangman(commands.Cog):
         self.active_games[interaction.channel_id] = game
 
         # Send a quick confirmation message to the user who started the game
-        await interaction.followup.send(f"✅ Starting a Hangman game in `{mode.upper()}` mode. Check the channel for the game! You have 60 seconds per guess.", ephemeral=True)
+        await interaction.followup.send(f"✅ Starting a Hangman game in `{mode.upper()}` mode. Check the channel for the game! You have 60 seconds per guess. Use `/hangman stop` to end the game early.", ephemeral=True)
 
         # Start the game (sends the initial message and enters the game loop)
         await game.start()
@@ -230,6 +248,31 @@ class Hangman(commands.Cog):
         if interaction.channel_id in self.active_games: # Ensure it's still there before deleting
             del self.active_games[interaction.channel_id]
             print(f"Hangman game in channel {interaction.channel_id} ended and cleaned up.")
+
+
+    @app_commands.command(name="stop", description="Stop the current Hangman game in this channel.")
+    async def stop_hangman(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True) # Defer response
+
+        game_id = interaction.channel_id
+        if game_id not in self.active_games:
+            await interaction.followup.send("❌ No Hangman game is currently active in this channel.", ephemeral=True)
+            return
+
+        game = self.active_games[game_id]
+        
+        # Optionally, you could add permission checks here, e.g., only the game starter or a mod can stop it.
+        # For simplicity, anyone can stop it for now.
+
+        await game.stop_game(interaction.user) # Call the stop method on the game instance
+        
+        # The game.stop_game() will handle updating the message and breaking the loop.
+        # We just need to remove it from our active games list.
+        if game_id in self.active_games: # Check again, just in case the game loop finished very quickly
+            del self.active_games[game_id]
+            print(f"Hangman game in channel {game_id} stopped by {interaction.user.name} and cleaned up.")
+
+        await interaction.followup.send("🛑 Hangman game has been stopped.", ephemeral=True)
 
 
 # This function is called by the bot when loading the cog
