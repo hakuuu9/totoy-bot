@@ -25,105 +25,10 @@ HANGMAN_STAGES = [
 # Max attempts allowed. Must be `len(HANGMAN_STAGES) - 1` because index 0 is the initial state.
 MAX_ATTEMPTS = len(HANGMAN_STAGES) - 1 # This will be 10 if you use all 11 stages (0-10)
 
-# View for Hangman guesses (buttons)
-class HangmanGuessView(discord.ui.View):
-    def __init__(self, game_instance, current_player_id: int | None):
-        super().__init__(timeout=120)  # Timeout after 2 minutes of inactivity for a guess
-        self.game = game_instance
-        self.current_player_id = current_player_id # None for FFA mode
-
-    # This check ensures only the current player (in solo/duo) can use the buttons.
-    # In FFA mode (self.game.players is None), anyone can use them.
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if self.game.players is not None and interaction.user.id != self.current_player_id:
-            await interaction.response.send_message("❌ It's not your turn!", ephemeral=True)
-            return False
-        return True
-
-    @discord.ui.button(label="Guess a Letter", style=discord.ButtonStyle.primary, custom_id="hangman_guess_letter_btn")
-    async def guess_letter_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Respond by sending the Guess Letter Modal
-        await interaction.response.send_modal(HangmanGuessModal(self.game))
-
-    @discord.ui.button(label="Solve Word", style=discord.ButtonStyle.secondary, custom_id="hangman_solve_word_btn")
-    async def solve_word_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Respond by sending the Solve Word Modal
-        await interaction.response.send_modal(HangmanSolveModal(self.game))
-
-# Modal for guessing a single letter
-class HangmanGuessModal(discord.ui.Modal, title="Guess a Letter"):
-    def __init__(self, game_instance):
-        super().__init__(timeout=300) # Modal timeout after 5 minutes
-        self.game = game_instance
-
-    # Text input field for the guess
-    guess_input = discord.ui.TextInput(
-        label="Enter your letter guess",
-        placeholder="e.g., 'a', 'b', 'c'",
-        max_length=1, # Only one character allowed
-        min_length=1,
-        required=True
-    )
-
-    async def on_submit(self, interaction: discord.Interaction):
-        guess = self.guess_input.value.lower()
-        
-        # Validate input: must be an alphabet letter
-        if not guess.isalpha():
-            await interaction.response.send_message("❌ Your guess must be a letter!", ephemeral=True)
-            return
-
-        # Check if letter was already guessed
-        if guess in self.game.guessed_letters:
-            await interaction.response.send_message(f"⚠️ You already guessed `{guess}`!", ephemeral=True)
-            return
-
-        self.game.guessed_letters.add(guess) # Add to set of guessed letters
-        
-        # Process the guess
-        if guess in self.game.word:
-            for i, c in enumerate(self.game.word):
-                if c == guess:
-                    self.game.display[i] = guess # Reveal letter in display
-            message_for_update = f"✅ Correct! `{self.game.format_display()}`"
-        else:
-            self.game.attempts_left -= 1 # Decrement attempts
-            message_for_update = f"❌ Wrong! `{self.game.format_display()}`\nTries left: {self.game.attempts_left}\n{HANGMAN_STAGES[MAX_ATTEMPTS - self.game.attempts_left]}"
-
-        # Update the main game message and check for game end conditions
-        await self.game.update_game_state(interaction, message_for_update)
-
-# Modal for solving the entire word
-class HangmanSolveModal(discord.ui.Modal, title="Solve the Word"):
-    def __init__(self, game_instance):
-        super().__init__(timeout=300) # Modal timeout after 5 minutes
-        self.game = game_instance
-
-    # Text input field for the full word guess
-    solve_input = discord.ui.TextInput(
-        label="Enter your full word guess",
-        placeholder="Type the entire word here",
-        min_length=1,
-        required=True
-    )
-
-    async def on_submit(self, interaction: discord.Interaction):
-        guess = self.solve_input.value.lower()
-
-        # Check if the guessed word is correct
-        if guess == self.game.word:
-            self.game.display = list(self.game.word) # Reveal the full word
-            message_for_update = f"🎉 **{interaction.user.mention} Solved it!** The word was: `{self.game.word}`"
-            await self.game.update_game_state(interaction, message_for_update, game_won=True)
-        else:
-            self.game.attempts_left -= 1 # Incorrect guess, lose an attempt
-            message_for_update = f"❌ Wrong word! `{self.game.format_display()}`\nTries left: {self.game.attempts_left}\n{HANGMAN_STAGES[MAX_ATTEMPTS - self.game.attempts_left]}"
-            await self.game.update_game_state(interaction, message_for_update)
-
-
 # Represents a single instance of a Hangman game
 class HangmanGame:
-    def __init__(self, channel: discord.TextChannel, word: str, players: list[discord.Member] | None):
+    def __init__(self, bot, channel: discord.TextChannel, word: str, players: list[discord.Member] | None):
+        self.bot = bot # Need bot instance to use wait_for
         self.channel = channel # The channel where the game is being played
         self.word = word
         self.display = ["_" for _ in word] # The masked word shown to players
@@ -151,79 +56,98 @@ class HangmanGame:
             
         # Send the first message, which will be edited throughout the game
         self.message = await self.channel.send(initial_message_content)
-        await self.send_turn_message() # Send the first turn prompt and buttons
+        await self.game_loop()
 
-    async def send_turn_message(self):
-        """Updates the game message with the current turn information."""
-        current_player_obj = None
-        current_player_id = None
-        if self.players: # Solo or Duo mode
-            current_player_obj = self.players[self.current_turn_index % len(self.players)]
-            current_player_id = current_player_obj.id
-            turn_prompt = f"🔁 {current_player_obj.mention}, it's your turn to guess."
-        else: # FFA mode
-            turn_prompt = "Guess a letter or the full word!"
-            current_player_id = None # No specific player ID for FFA interaction_check
+    async def game_loop(self):
+        """Main loop for the Hangman game, handling turns and guesses."""
+        while self.attempts_left > 0 and "_" in self.display:
+            current_player_obj = None
+            if self.players: # Solo or Duo mode
+                current_player_obj = self.players[self.current_turn_index % len(self.players)]
+                await self.message.edit(content=self.get_game_state_message() + f"\n\n🔁 {current_player_obj.mention}, it's your turn to guess a letter or the full word.")
+                
+            else: # FFA mode
+                await self.message.edit(content=self.get_game_state_message() + "\n\nGuess a letter or the full word!")
 
-        # Edit the main game message to update player turn and view
-        # We split the content to preserve the initial game details and replace the dynamic turn prompt
-        base_content_parts = self.message.content.split('\n\n🔁')
-        new_content = base_content_parts[0].strip() + "\n\n" + turn_prompt
-        
-        # Create and attach the HangmanGuessView with buttons
-        view_to_attach = HangmanGuessView(self, current_player_id)
-        await self.message.edit(content=new_content, view=view_to_attach)
+            try:
+                # Wait for a message in the channel
+                guess_msg = await self.bot.wait_for(
+                    "message",
+                    timeout=60, # 60 seconds to guess
+                    check=lambda m: (
+                        m.channel == self.channel and # Must be in the game channel
+                        m.content.strip().lower() != "/hangman" and # Ignore new game commands
+                        (self.players is None or m.author == current_player_obj) # If turn-based, only current player
+                    )
+                )
+            except asyncio.TimeoutError:
+                await self.message.edit(content=f"⏰ Time's up! Game over. The word was: `{self.word}`", view=None)
+                break # Exit game loop
+            
+            # Delete the user's guess message to keep the channel clean
+            try:
+                await guess_msg.delete()
+            except discord.Forbidden:
+                pass # Bot might not have permission to delete messages
 
+            guess = guess_msg.content.lower().strip()
 
-    async def update_game_state(self, interaction: discord.Interaction, message_from_guess: str, game_won: bool = False):
-        """
-        Updates the main game message with the latest state after a guess.
-        Handles win/loss conditions.
-        """
-        # Check for game end conditions
-        if game_won or "_" not in self.display:
+            if not guess.isalpha():
+                await self.channel.send("❌ Your guess must be alphabetic (a letter or a word)!", delete_after=5)
+                continue
+
+            if len(guess) == 1: # Single letter guess
+                if guess in self.guessed_letters:
+                    await self.channel.send(f"⚠️ You already guessed `{guess}`!", delete_after=5)
+                    continue
+
+                self.guessed_letters.add(guess)
+                if guess in self.word:
+                    for i, c in enumerate(self.word):
+                        if c == guess:
+                            self.display[i] = guess
+                    await self.channel.send(f"✅ Correct! `{guess}` was in the word.", delete_after=5)
+                else:
+                    self.attempts_left -= 1
+                    await self.channel.send(f"❌ Wrong! `{guess}` was not in the word.", delete_after=5)
+            else: # Full word guess
+                if guess == self.word:
+                    self.display = list(self.word) # Reveal the full word
+                    await self.channel.send(f"🎉 **{guess_msg.author.mention} Solved it!** The word was: `{self.word}`")
+                    break # Game won
+                else:
+                    self.attempts_left -= 1
+                    await self.channel.send(f"❌ Wrong word! `{guess}` was not the word.", delete_after=5)
+            
+            # Advance turn for next player in solo/duo
+            if self.players:
+                self.current_turn_index += 1
+            
+            # Update the main game message after each guess
+            await self.message.edit(content=self.get_game_state_message())
+
+        # Game ended (win or lose)
+        if "_" not in self.display:
             final_message_content = f"🎉 **GAME WON!** The word was: `{self.word}`"
-            # Edit the original message to show final state and remove buttons
-            await self.message.edit(content=final_message_content, view=None)
-            await interaction.response.send_message(message_from_guess, ephemeral=True) # Send modal response
-            return
-
-        if self.attempts_left <= 0:
+        else:
             final_message_content = f"💀 **GAME OVER!** You ran out of tries. The word was: `{self.word}`"
-            # Edit the original message to show final state and remove buttons
-            await self.message.edit(content=final_message_content, view=None)
-            await interaction.response.send_message(message_from_guess, ephemeral=True) # Send modal response
-            return
+        
+        await self.message.edit(content=final_message_content, view=None) # Ensure buttons are gone
 
-        # If game is still ongoing, prepare updated content for the main message
+    def get_game_state_message(self):
+        """Constructs the current state message of the game."""
         current_stage_art = HANGMAN_STAGES[MAX_ATTEMPTS - self.attempts_left]
         
-        # Construct the new content for the main game message
-        new_main_message_content = (
+        content = (
             f"🎯 **Hangman Game Started!**\n"
             f"Word: `{self.format_display()}`\n"
             f"Guessed Letters: `{', '.join(sorted(list(self.guessed_letters))) or 'None'}`\n"
             f"Tries left: {self.attempts_left}\n"
             f"{current_stage_art}"
         )
-
-        next_player_obj = None
-        next_player_id = None
-        if self.players: # Solo or Duo mode
-            self.current_turn_index += 1 # Advance turn
-            next_player_obj = self.players[self.current_turn_index % len(self.players)]
-            next_player_id = next_player_obj.id
-            new_main_message_content += f"\n\n🔁 {next_player_obj.mention}, it's your turn to guess."
-        else: # FFA mode
-            new_main_message_content += "\n\nGuess a letter or the full word!"
-            next_player_id = None # No specific player ID for FFA
-
-        # Edit the main game message
-        await self.message.edit(content=new_main_message_content, view=HangmanGuessView(self, next_player_id))
-        
-        # Respond to the modal interaction (this is important to dismiss the modal)
-        # You can choose to send a visible message or just dismiss it
-        await interaction.response.send_message(message_from_guess, ephemeral=True)
+        if self.players:
+            content += f"\n\n**Players:** {', '.join([p.mention for p in self.players])}"
+        return content
 
 
 class Hangman(commands.Cog):
@@ -292,24 +216,21 @@ class Hangman(commands.Cog):
             players_for_game = None # Set to None to indicate Free For All mode where anyone can guess
 
         # Create a new HangmanGame instance for this channel
-        game = HangmanGame(interaction.channel, word, players_for_game)
+        game = HangmanGame(self.bot, interaction.channel, word, players_for_game) # Pass bot instance
         # Store the game instance in the active_games dictionary
         self.active_games[interaction.channel_id] = game
 
-        # Start the game (sends the initial message and sets up the first turn)
+        # Send a quick confirmation message to the user who started the game
+        await interaction.followup.send(f"✅ Starting a Hangman game in `{mode.upper()}` mode. Check the channel for the game! You have 60 seconds per guess.", ephemeral=True)
+
+        # Start the game (sends the initial message and enters the game loop)
         await game.start()
 
-        # Monitor the game until it ends (either by winning or losing)
-        # This loop keeps the game instance alive and allows the cog to manage its lifecycle.
-        while True:
-            # Game ends if the word is fully guessed or attempts run out
-            if "_" not in game.display or game.attempts_left <= 0:
-                break # Exit the loop, game is over
-            await asyncio.sleep(5) # Check game state every 5 seconds
+        # After game.start() finishes (meaning the game loop has ended), clean up
+        if interaction.channel_id in self.active_games: # Ensure it's still there before deleting
+            del self.active_games[interaction.channel_id]
+            print(f"Hangman game in channel {interaction.channel_id} ended and cleaned up.")
 
-        # Game has ended, clean up the active game instance from the dictionary
-        del self.active_games[interaction.channel_id]
-        print(f"Hangman game in channel {interaction.channel_id} ended and cleaned up.")
 
 # This function is called by the bot when loading the cog
 async def setup(bot):
