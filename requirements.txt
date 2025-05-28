@@ -2,4 +2,3 @@ discord.py
 pymongo
 Flask
 aiohttp
-yt-dlp
